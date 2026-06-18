@@ -5,7 +5,7 @@ import java.awt.event.*;
 public class MyGame {
     public static void main(String[] args) {
 //Step 1. 產生遊戲背景物件: 標題, 寬度, 高度, 背景顏色
-    GameContext ctx = new GameContext ("MY Warrior Game", 1080, 720, Color.white){
+    GameContext ctx = new GameContext ("Minesweeper Adventure", 1080, 720, Color.white){
         
         /*@Override
         public String getBackgroundImgPath(){
@@ -32,6 +32,9 @@ public class MyGame {
                               { new ImageSequence("src/special_move/" , "png", 6) }
                          };  //建立角色分鏡圖
         
+    MineBoard board = new MineBoard();
+    myroles.add(new BoardRole(board));
+    
     MyRole player = new MyRole(200, 350, 100, 100, 0, -100, 400, is);
     myroles.add(player ); 
     gameEngine.registerKeyEventHandler(player); //註冊接受鍵盤事件
