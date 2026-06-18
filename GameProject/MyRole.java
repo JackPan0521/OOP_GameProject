@@ -11,6 +11,13 @@ public class MyRole extends SampleRole5 {
     private boolean movingLeft = false;
     private boolean movingRight = false;
 
+    private MineBoard board;
+
+    public MyRole(int x, int y, int w, int h, int jvx, int jvy, int bottom, ImageSequence[][] is, MineBoard board) {
+        super(x, y, w, h, jvx, jvy, bottom, is);
+        this.board = board;
+    }
+
     public MyRole(int x, int y, int w, int h, int jvx, int jvy, int bottom, ImageSequence[][] is) {
         super(x, y, w, h, jvx, jvy, bottom, is);
     }
@@ -97,6 +104,20 @@ public class MyRole extends SampleRole5 {
                 break;
             case KeyEvent.VK_RIGHT:
                 movingRight = true;
+                break;
+            case KeyEvent.VK_F:
+            if (board != null) {
+                int footX = x + w / 2;
+                int footY = y + h - 1;
+                board.openAtPixel(footX, footY);
+            }
+                break;
+            case KeyEvent.VK_G:
+            if (board != null) {
+                int footX = x + w / 2;
+                int footY = y + h - 1;
+                board.toggleFlagAtPixel(footX, footY);
+            }
                 break;
             default:
                 break;

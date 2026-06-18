@@ -1,33 +1,57 @@
+public class Cell {
+    private final int row;
+    private final int col;
+    private boolean mine;
+    private boolean revealed;
+    private boolean flagged;
+    private int adjacentMines;
 
-/**
- * 在这里给出对类 Cell 的描述。
- * 
- * @author (你的名字)
- * @version (一个版本号或者一个日期)
- */
-public class Cell
-{
-    // 实例变量 - 用你自己的变量替换下面的例子
-    private int x;
-
-    /**
-     * 类 Cell 的对象的构造函数
-     */
-    public Cell()
-    {
-        // 初始化实例变量
-        x = 0;
+    public Cell(int row, int col) {
+        this.row = row;
+        this.col = col;
+        this.mine = false;
+        this.revealed = false;
+        this.flagged = false;
+        this.adjacentMines = 0;
     }
 
-    /**
-     * 一个方法的例子 - 使用你自己的注释替换它
-     * 
-     * @param y 方法的一个示例参数
-     * @return x，y的和
-     */
-    public int sampleMethod(int y)
-    {
-        // 在这里加入你的代码
-        return x + y;
+    public int getRow() {
+        return row;
+    }
+
+    public int getCol() {
+        return col;
+    }
+
+    public boolean isMine() {
+        return mine;
+    }
+
+    public void setMine(boolean mine) {
+        this.mine = mine;
+    }
+
+    public boolean isRevealed() {
+        return revealed;
+    }
+
+    public void setRevealed(boolean revealed) {
+        this.revealed = revealed;
+    }
+
+    public boolean isFlagged() {
+        return flagged;
+    }
+
+    public void setFlagged(boolean flagged) {
+        this.flagged = flagged;
+    }
+
+    public int getAdjacentMines() {
+        return adjacentMines;
+    }
+
+    public void setAdjacentMines(int adjacentMines) {
+        this.adjacentMines = adjacentMines;
     }
 }
