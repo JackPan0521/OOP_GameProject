@@ -7,84 +7,383 @@ import java.util.Random;
 import javax.imageio.ImageIO;
 
 public class MineBoard {
-    // 這些屬性不再寫死，改由 Builder 帶入
-    private final int boardW;
-    private final int boardH;
-    private final int tile;
-    private final int cols;
-    private final int rows;
+    public static final int ZONE_SIZE = 8; 
 
-    private final int boardLeft;
-    private final int boardTop;
-    private final int mineCount;
+    private final int tileSize;      
+    private final int zoneRows;      
+    private final int zoneCols;      
+    private final int totalRows;     
+    private final int totalCols;     
+    private final int boardLeft;     
+    private final int boardTop;      
+    private final int minePerZone;   // 每個區塊最多的地雷數
+    private int totalMineCount = 0;  // 實際放置的總地雷數（生成後才知道）
 
     private boolean generated = false;
     private Cell[][] cells;
+    private boolean[][] zoneCleared; 
+
+    // 攝影機系統
+    private int cameraX = 0;
+    private int cameraY = 0;
+
+    private boolean gameOver = false;
+    private int elapsedTime = 0;
+    private long startTime = -1;
 
     private Image unopenTile;
     private Image flagTile;
     private Image boomTile;
     private Image[] numberTiles;
 
-    // 時間與計分板變數
-    private long startTime = 0;
-    private int elapsedTime = 0;
-    private boolean gameOver = false;
-    private boolean gameWon = false;
-
-    // 1. 將建構子設為 private，強制外部必須透過 Builder 來建立物件
-    private MineBoard(Builder builder) {
-        this.boardW = builder.boardW;
-        this.boardH = builder.boardH;
-        this.tile = builder.tile;
-        this.cols = this.boardW / this.tile;
-        this.rows = this.boardH / this.tile;
+    public MineBoard(Builder builder) {
+        this.tileSize = builder.tileSize;
+        this.zoneRows = builder.zoneRows;
+        this.zoneCols = builder.zoneCols;
+        this.totalRows = builder.zoneRows * ZONE_SIZE;
+        this.totalCols = builder.zoneCols * ZONE_SIZE;
         this.boardLeft = builder.boardLeft;
         this.boardTop = builder.boardTop;
-        this.mineCount = builder.mineCount;
+        this.minePerZone = builder.minePerZone;
 
-        // 初始化格子陣列
-        cells = new Cell[rows][cols];
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
+        cells = new Cell[totalRows][totalCols];
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
                 cells[r][c] = new Cell(r, c);
             }
         }
 
-        numberTiles = new Image[8];
+        zoneCleared = new boolean[zoneRows][zoneCols];
+        numberTiles = new Image[9];
 
-        // 載入圖片資源
         try {
             unopenTile = ImageIO.read(new File("src/minesweeper icon/unopen.png"));
             flagTile = ImageIO.read(new File("src/minesweeper icon/flag.png"));
             boomTile = ImageIO.read(new File("src/minesweeper icon/boom.png"));
 
-            for (int i = 0; i <= 7; i++) {
-                numberTiles[i] = ImageIO.read(new File("src/minesweeper icon/" + i + ".png"));
+            for (int i = 0; i <= 8; i++) {
+                File f = new File("src/minesweeper icon/" + i + ".png");
+                if (f.exists()) {
+                    numberTiles[i] = ImageIO.read(f);
+                }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("地圖圖片載入失敗，請檢查路徑：" + e.getMessage());
         }
     }
 
-    // 2. 建立靜態內部類別 Builder
-    public static class Builder {
-        // 設定預設值（如果外部沒設定，就用這套預設值）
-        private int boardW = 1080;
-        private int boardH = 648;
-        private int tile = 108;
-        private int boardLeft = 0;
-        private int boardTop = 72;
-        private int mineCount = 10;
+    public void updateCamera(int playerX, int playerY, int playerW, int playerH, int screenW, int screenH) {
+        // 定義玩家距離視窗邊緣多少像素時，開始推動攝影機（例如設為 128 像素，約 2 格的距離）
+        int paddingX = 128;
+        int paddingY = 128;
 
-        public Builder setBoardSize(int width, int height) {
-            this.boardW = width;
-            this.boardH = height;
-            return this; // 回傳 this 以支援鏈式調用 (Chaining)
+        // 計算玩家目前在「螢幕上」的相對位置
+        int screenPlayerX = playerX - cameraX;
+        int screenPlayerY = playerY - cameraY;
+
+        // --- 水平方向推動 ---
+        // 玩家太靠右邊，把攝影機往右推
+        if (screenPlayerX > screenW - playerW - paddingX) {
+            cameraX = playerX - (screenW - playerW - paddingX);
+        }
+        // 玩家太靠左邊，把攝影機往左推
+        else if (screenPlayerX < paddingX) {
+            cameraX = playerX - paddingX;
         }
 
-        public Builder setTileSize(int tileSize) {
-            this.tile = tileSize;
+        // --- 垂直方向推動 ---
+        // 玩家太靠下邊，把攝影機往下推
+        if (screenPlayerY > screenH - playerH - paddingY) {
+            cameraY = playerY - (screenH - playerH - paddingY);
+        }
+        // 玩家太靠上邊（注意避開上方 boardTop 計分板），把攝影機往上推
+        else if (screenPlayerY < boardTop + paddingY) {
+            cameraY = playerY - (boardTop + paddingY);
+        }
+
+        // --- 最終保險：限制攝影機絕對不能露出大地圖外 ---
+        int maxCameraX = (totalCols * tileSize) - screenW;
+        int maxCameraY = (totalRows * tileSize) - (screenH - boardTop);
+
+        if (cameraX < 0) cameraX = 0;
+        if (cameraY < 0) cameraY = 0;
+        if (maxCameraX > 0 && cameraX > maxCameraX) cameraX = maxCameraX;
+        if (maxCameraY > 0 && cameraY > maxCameraY) cameraY = maxCameraY;
+    }
+
+    public int getCameraX() { return this.cameraX; }
+    public int getCameraY() { return this.cameraY; }
+    public int getTotalRows() { return this.totalRows; }
+    public int getTotalCols() { return this.totalCols; }
+    public int getTileSize() { return this.tileSize; }
+    public int getBoardTop() { return this.boardTop; }
+    public boolean isGameOver() { return this.gameOver; }
+    public int getElapsedTime() { return this.elapsedTime; }
+
+    private void updateTime() {
+        if (startTime == -1 || gameOver || isBigLevelCleared()) return;
+        elapsedTime = (int) ((System.currentTimeMillis() - startTime) / 1000);
+    }
+
+    public void openAtPixel(int pixelX, int pixelY) {
+        if (gameOver || isBigLevelCleared()) return;
+        int c = (pixelX - boardLeft) / tileSize;
+        int r = (pixelY - boardTop) / tileSize;
+
+        if (inBounds(r, c)) {
+            if (!generated) {
+                generateMines(r, c);
+                generated = true;
+                startTime = System.currentTimeMillis();
+            }
+            openCell(r, c);
+        }
+    }
+
+    public void toggleFlagAtPixel(int pixelX, int pixelY) {
+        if (gameOver || isBigLevelCleared()) return;
+        int c = (pixelX - boardLeft) / tileSize;
+        int r = (pixelY - boardTop) / tileSize;
+
+        if (inBounds(r, c)) {
+            Cell cell = cells[r][c];
+            if (!cell.isRevealed()) {
+                cell.setFlagged(!cell.isFlagged());
+            }
+        }
+    }
+
+    private void generateMines(int startRow, int startCol) {
+        Random rand = new Random();
+        totalMineCount = 0;
+
+        // 逐區塊放置地雷，每個區塊最多放 minePerZone 顆
+        for (int zr = 0; zr < zoneRows; zr++) {
+            for (int zc = 0; zc < zoneCols; zc++) {
+                int placed = 0;
+                int attempts = 0;
+                int maxAttempts = ZONE_SIZE * ZONE_SIZE * 10; // 避免無限迴圈
+
+                while (placed < minePerZone && attempts < maxAttempts) {
+                    attempts++;
+                    // 在這個區塊的範圍內隨機選格
+                    int r = zr * ZONE_SIZE + rand.nextInt(ZONE_SIZE);
+                    int c = zc * ZONE_SIZE + rand.nextInt(ZONE_SIZE);
+
+                    // 跳過起始點周圍 3x3 的安全區
+                    if (Math.abs(r - startRow) <= 1 && Math.abs(c - startCol) <= 1) {
+                        continue;
+                    }
+
+                    if (!cells[r][c].isMine()) {
+                        cells[r][c].setMine(true);
+                        placed++;
+                        totalMineCount++;
+                    }
+                }
+            }
+        }
+
+        // 計算每格的相鄰地雷數
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
+                if (!cells[r][c].isMine()) {
+                    int count = 0;
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (inBounds(r + dr, c + dc) && cells[r + dr][c + dc].isMine()) {
+                                count++;
+                            }
+                        }
+                    }
+                    cells[r][c].setAdjacentMines(count);
+                }
+            }
+        }
+    }
+
+    private void openCell(int r, int c) {
+        Cell cell = cells[r][c];
+        if (cell.isRevealed() || cell.isFlagged()) return;
+
+        cell.setRevealed(true);
+
+        if (cell.isMine()) {
+            gameOver = true;
+            revealAllMines();
+            return;
+        }
+
+        if (cell.getAdjacentMines() == 0) {
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (inBounds(r + dr, c + dc)) {
+                        openCell(r + dr, c + dc);
+                    }
+                }
+            }
+        }
+        checkZoneCleared(r, c);
+    }
+
+    private void checkZoneCleared(int r, int c) {
+        int zr = r / ZONE_SIZE;
+        int zc = c / ZONE_SIZE;
+
+        if (zoneCleared[zr][zc]) return;
+
+        boolean allClear = true;
+        for (int row = zr * ZONE_SIZE; row < (zr + 1) * ZONE_SIZE; row++) {
+            for (int col = zc * ZONE_SIZE; col < (zc + 1) * ZONE_SIZE; col++) {
+                Cell cell = cells[row][col];
+                if (!cell.isMine() && !cell.isRevealed()) {
+                    allClear = false;
+                    break;
+                }
+            }
+            if (!allClear) break;
+        }
+
+        if (allClear) {
+            zoneCleared[zr][zc] = true;
+        }
+    }
+
+    public boolean isBigLevelCleared() {
+        for (int zr = 0; zr < zoneRows; zr++) {
+            for (int zc = 0; zc < zoneCols; zc++) {
+                if (!zoneCleared[zr][zc]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private void revealAllMines() {
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
+                if (cells[r][c].isMine()) {
+                    cells[r][c].setRevealed(true);
+                }
+            }
+        }
+    }
+
+    private int getFlagCount() {
+        int count = 0;
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
+                if (cells[r][c].isFlagged()) count++;
+            }
+        }
+        return count;
+    }
+
+    public void draw(Graphics g) {
+        if (unopenTile == null) return;
+
+        // 💡 所有的格子繪製都要手動扣除攝影機偏移量 (cameraX, cameraY)
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
+                Cell cell = cells[r][c];
+                int x = boardLeft + c * tileSize - cameraX;
+                int y = boardTop + r * tileSize - cameraY;
+
+                // 效能優化：超出螢幕範圍的不畫
+                if (x + tileSize < 0 || x > 1080 || y + tileSize < boardTop || y > 720) {
+                    continue;
+                }
+
+                if (!cell.isRevealed()) {
+                    if (cell.isFlagged() && flagTile != null) {
+                        g.drawImage(flagTile, x, y, tileSize, tileSize, null);
+                    } else {
+                        g.drawImage(unopenTile, x, y, tileSize, tileSize, null);
+                    }
+                } else {
+                    if (cell.isMine()) {
+                        if (boomTile != null) {
+                            g.drawImage(boomTile, x, y, tileSize, tileSize, null);
+                        }
+                    } else {
+                        int n = cell.getAdjacentMines();
+                        if (n >= 0 && n <= 8 && numberTiles[n] != null) {
+                            g.drawImage(numberTiles[n], x, y, tileSize, tileSize, null);
+                        } else {
+                            g.drawImage(unopenTile, x, y, tileSize, tileSize, null);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 粗黑區域線（同樣扣除攝影機）
+        g.setColor(Color.BLACK);
+        for (int r = 0; r <= zoneRows; r++) {
+            int y = boardTop + r * ZONE_SIZE * tileSize - cameraY;
+            if (y >= boardTop && y <= 720) {
+                g.fillRect(boardLeft, y - 2, totalCols * tileSize, 4); 
+            }
+        }
+        for (int c = 0; c <= zoneCols; c++) {
+            int x = boardLeft + c * ZONE_SIZE * tileSize - cameraX;
+            if (x >= 0 && x <= 1080) {
+                g.fillRect(x - 2, boardTop, 4, totalRows * tileSize); 
+            }
+        }
+
+        // UI 狀態面板永遠固定在畫面上方，不隨攝影機移動
+        updateTime();
+        g.setColor(Color.LIGHT_GRAY);
+        g.fillRect(0, 0, 1080, boardTop);
+        g.setColor(Color.DARK_GRAY);
+        g.drawRect(0, 0, 1080 - 1, boardTop - 1);
+
+        g.setFont(new Font("Monospaced", Font.BOLD, 26));
+        int remainingMines = totalMineCount - getFlagCount();
+        g.setColor(Color.RED);
+        g.drawString(String.format("MINES: %03d", remainingMines), 30, 45);
+
+        g.setColor(Color.BLACK);
+        g.drawString(String.format("TIME: %03d", elapsedTime), 1080 - 200, 45);
+
+        if (isBigLevelCleared()) {
+            g.setFont(new Font("Arial", Font.BOLD, 28));
+            g.setColor(Color.GREEN);
+            g.drawString("STAGE CLEAR! Press 'R' for Next Wave!", 250, 45);
+        } else if (gameOver) {
+            g.setFont(new Font("Arial", Font.BOLD, 28));
+            g.setColor(Color.RED);
+            g.drawString("GAME OVER! Press 'R' to Retry!", 300, 45);
+        }
+    }
+
+    private boolean inBounds(int row, int col) {
+        return row >= 0 && row < totalRows && col >= 0 && col < totalCols;
+    }
+
+    public static class Builder {
+        private int tileSize = 64;
+        private int zoneRows = 2;
+        private int zoneCols = 2;
+        private int boardLeft = 0;
+        private int boardTop = 72;
+        private int minePerZone = 10; // 每個區塊最多的地雷數
+
+        public Builder setZoneDimensions(int zoneRows, int zoneCols, int tileSize) {
+            this.zoneRows = zoneRows;
+            this.zoneCols = zoneCols;
+            this.tileSize = tileSize;
+            return this;
+        }
+
+        public Builder setMapByPixels(int totalPixelW, int totalPixelH, int tileSize) {
+            this.tileSize = tileSize;
+            int totalGridW = totalPixelW / tileSize;
+            int totalGridH = (totalPixelH - boardTop) / tileSize;
+            this.zoneCols = Math.max(1, totalGridW / ZONE_SIZE);
+            this.zoneRows = Math.max(1, totalGridH / ZONE_SIZE);
             return this;
         }
 
@@ -94,323 +393,13 @@ public class MineBoard {
             return this;
         }
 
-        public Builder setMineCount(int count) {
-            this.mineCount = count;
+        public Builder setMinesPerZone(int count) {
+            this.minePerZone = count;
             return this;
         }
 
-        // 最終組裝並產出 MineBoard 物件
         public MineBoard build() {
             return new MineBoard(this);
         }
-    }
-
-    // ==========================================
-    //  以下為原本的遊戲邏輯與繪製方法，保持不變
-    // ==========================================
-
-    public void openAtPixel(int px, int py) {
-        int col = (px - boardLeft) / tile;
-        int row = (py - boardTop) / tile;
-        openAtCell(row, col);
-    }
-
-    public void openAtCell(int row, int col) {
-        if (!inBounds(row, col) || gameOver) {
-            return;
-        }
-
-        if (!generated) {
-            generateMinesWithSafeZone(row, col);
-            generated = true;
-            startTime = System.currentTimeMillis();
-        }
-
-        reveal(row, col);
-        checkGameStatus();
-    }
-
-    public void toggleFlagAtPixel(int px, int py) {
-        int col = (px - boardLeft) / tile;
-        int row = (py - boardTop) / tile;
-        toggleFlag(row, col);
-    }
-
-    public void toggleFlag(int row, int col) {
-        if (!inBounds(row, col)) {
-            return;
-        }
-
-        Cell cell = cells[row][col];
-        if (cell.isRevealed()) {
-            return;
-        }
-
-        cell.setFlagged(!cell.isFlagged());
-    }
-
-    private void generateMinesWithSafeZone(int safeRow, int safeCol) {
-        Random random = new Random();
-        int placed = 0;
-
-        while (placed < mineCount) {
-            int row = random.nextInt(rows);
-            int col = random.nextInt(cols);
-
-            if (cells[row][col].isMine()) {
-                continue;
-            }
-
-            if (isInSafeZone(row, col, safeRow, safeCol)) {
-                continue;
-            }
-
-            cells[row][col].setMine(true);
-            placed++;
-        }
-
-        computeAdjacentCounts();
-    }
-
-    private boolean isInSafeZone(int row, int col, int safeRow, int safeCol) {
-        return Math.abs(row - safeRow) <= 1 && Math.abs(col - safeCol) <= 1;
-    }
-
-    private void computeAdjacentCounts() {
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                if (cells[r][c].isMine()) {
-                    continue;
-                }
-
-                int count = 0;
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        if (dr == 0 && dc == 0) {
-                            continue;
-                        }
-                        int nr = r + dr;
-                        int nc = c + dc;
-                        if (inBounds(nr, nc) && cells[nr][nc].isMine()) {
-                            count++;
-                        }
-                    }
-                }
-                cells[r][c].setAdjacentMines(count);
-            }
-        }
-    }
-
-    public void reveal(int row, int col) {
-        if (!inBounds(row, col)) {
-            return;
-        }
-
-        Cell start = cells[row][col];
-        if (start.isFlagged()) {
-            return;
-        }
-
-        if (start.isRevealed()) {
-            int adjacentMines = start.getAdjacentMines();
-            if (adjacentMines > 0 && !start.isMine()) {
-                int flaggedCount = 0;
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        if (dr == 0 && dc == 0) continue;
-                        int nr = row + dr;
-                        int nc = col + dc;
-                        if (inBounds(nr, nc) && cells[nr][nc].isFlagged()) {
-                            flaggedCount++;
-                        }
-                    }
-                }
-
-                if (flaggedCount == adjacentMines) {
-                    for (int dr = -1; dr <= 1; dr++) {
-                        for (int dc = -1; dc <= 1; dc++) {
-                            if (dr == 0 && dc == 0) continue;
-                            int nr = row + dr;
-                            int nc = col + dc;
-                            if (inBounds(nr, nc)) {
-                                Cell next = cells[nr][nc];
-                                if (!next.isRevealed() && !next.isFlagged()) {
-                                    if (next.isMine()) {
-                                        next.setRevealed(true);
-                                    } else if (next.getAdjacentMines() == 0) {
-                                        revealConnectedSafeArea(nr, nc);
-                                    } else {
-                                        next.setRevealed(true);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return;
-        }
-
-        if (start.isMine()) {
-            start.setRevealed(true);
-            return;
-        }
-
-        revealConnectedSafeArea(row, col);
-    }
-
-    private void revealConnectedSafeArea(int row, int col) {
-        java.util.ArrayDeque<int[]> queue = new java.util.ArrayDeque<>();
-        queue.add(new int[] { row, col });
-
-        while (!queue.isEmpty()) {
-            int[] pos = queue.removeFirst();
-            int r = pos[0];
-            int c = pos[1];
-
-            if (!inBounds(r, c)) {
-                continue;
-            }
-
-            Cell cell = cells[r][c];
-            if (cell.isRevealed() || cell.isFlagged()) {
-                continue;
-            }
-
-            if (cell.isMine()) {
-                continue;
-            }
-
-            cell.setRevealed(true);
-
-            if (cell.getAdjacentMines() == 0) {
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        if (dr == 0 && dc == 0) {
-                            continue;
-                        }
-                        int nr = r + dr;
-                        int nc = c + dc;
-                        if (inBounds(nr, nc)) {
-                            Cell next = cells[nr][nc];
-                            if (!next.isRevealed() && !next.isFlagged() && !next.isMine()) {
-                                queue.add(new int[] { nr, nc });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    public int getFlagCount() {
-        int count = 0;
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                if (cells[r][c].isFlagged()) {
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-
-    private void checkGameStatus() {
-        boolean hitMine = false;
-        boolean allSafeRevealed = true;
-
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                Cell cell = cells[r][c];
-                if (cell.isMine() && cell.isRevealed()) {
-                    hitMine = true;
-                }
-                if (!cell.isMine() && !cell.isRevealed()) {
-                    allSafeRevealed = false;
-                }
-            }
-        }
-
-        if (hitMine) {
-            gameOver = true;
-        } else if (allSafeRevealed) {
-            gameOver = true;
-            gameWon = true;
-        }
-    }
-
-    public void updateTime() {
-        if (generated && !gameOver) {
-            elapsedTime = (int) ((System.currentTimeMillis() - startTime) / 1000);
-            if (elapsedTime > 999) {
-                elapsedTime = 999;
-            }
-        }
-    }
-
-    public void draw(Graphics g) {
-        if (unopenTile == null) {
-            return;
-        }
-
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                Cell cell = cells[r][c];
-                int x = boardLeft + c * tile;
-                int y = boardTop + r * tile;
-
-                if (!cell.isRevealed()) {
-                    if (cell.isFlagged() && flagTile != null) {
-                        g.drawImage(flagTile, x, y, tile, tile, null);
-                    } else {
-                        g.drawImage(unopenTile, x, y, tile, tile, null);
-                    }
-                } else {
-                    if (cell.isMine()) {
-                        if (boomTile != null) {
-                            g.drawImage(boomTile, x, y, tile, tile, null);
-                        }
-                    } else {
-                        int n = cell.getAdjacentMines();
-                        if (n >= 0 && n <= 7 && numberTiles[n] != null) {
-                            g.drawImage(numberTiles[n], x, y, tile, tile, null);
-                        } else {
-                            g.drawImage(unopenTile, x, y, tile, tile, null);
-                        }
-                    }
-                }
-            }
-        }
-
-        updateTime();
-
-        g.setColor(Color.LIGHT_GRAY);
-        g.fillRect(0, 0, boardW, boardTop);
-        g.setColor(Color.DARK_GRAY);
-        g.drawRect(0, 0, boardW - 1, boardTop - 1);
-
-        g.setFont(new Font("Monospaced", Font.BOLD, 30));
-
-        int remainingMines = mineCount - getFlagCount(); 
-        g.setColor(Color.RED);
-        g.drawString(String.format("MINES: %03d", remainingMines), 50, 45);
-
-        g.setColor(Color.BLACK);
-        g.drawString(String.format("TIME: %03d", elapsedTime), boardW - 250, 45);
-
-        if (gameOver) {
-            g.setFont(new Font("Arial", Font.BOLD, 35));
-            if (gameWon) {
-                g.setColor(Color.GREEN);
-                g.drawString("YOU WIN!", boardW / 2 - 80, 48);
-            } else {
-                g.setColor(Color.RED);
-                g.drawString("GAME OVER", boardW / 2 - 100, 48);
-            }
-        }
-    }
-
-    private boolean inBounds(int row, int col) {
-        return row >= 0 && row < rows && col >= 0 && col < cols;
     }
 }

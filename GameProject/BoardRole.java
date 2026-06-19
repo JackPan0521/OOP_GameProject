@@ -3,36 +3,55 @@ import java.awt.Graphics;
 import java.awt.Rectangle;
 
 public class BoardRole implements Role {
-    private final MineBoard board;
+    private MineBoard board;
+    private MyRole player; 
 
     public BoardRole(MineBoard board) {
         this.board = board;
     }
 
-    @Override
-    public void getReady() {
+    public void setBoard(MineBoard board){
+        this.board = board;
+    }
+
+    public void setPlayer(MyRole player) {
+        this.player = player;
     }
 
     @Override
-    public void run() {
-    }
+    public void getReady() {}
 
     @Override
-    public void end() {
-    }
+    public void run() {}
 
     @Override
-    public Model getModel() {
-        return null; // 不參與碰撞
-    }
+    public void end() {}
 
     @Override
-    public Effect conflict(Role r, Rectangle intersect) {
-        return null;
-    }
+    public Model getModel() { return null; }
+
+    @Override
+    public Effect conflict(Role r, Rectangle intersect) { return null; }
 
     @Override
     public void display(Graphics g) {
-        board.draw(g);
+        if (board != null && player != null) {
+            int screenW = 1080;
+            int screenH = 720;
+
+            // ✅ 先根據玩家最新位置更新攝影機
+            board.updateCamera(
+                player.getX(), player.getY(),
+                player.getW(), player.getH(),
+                screenW, screenH
+            );
+
+            // ✅ 直接繪製地圖（地圖內部自己扣 cameraX/cameraY）
+            // ✅ 不做 g.translate，不呼叫 player.display（MyRole 自己換算螢幕座標）
+            board.draw(g);
+
+        } else if (board != null) {
+            board.draw(g);
+        }
     }
 }
