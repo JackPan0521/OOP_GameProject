@@ -136,7 +136,31 @@ public class MineBoard {
                 generated = true;
                 startTime = System.currentTimeMillis();
             }
-            openCell(r, c);
+
+            Cell cell = cells[r][c];
+
+            // Chord 操作：對已翻開的數字格按 F，若周圍旗子數 >= 相鄰地雷數，自動翻開所有未插旗鄰居
+            if (cell.isRevealed() && cell.getAdjacentMines() > 0) {
+                int flagCount = 0;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        if (inBounds(r + dr, c + dc) && cells[r + dr][c + dc].isFlagged()) {
+                            flagCount++;
+                        }
+                    }
+                }
+                if (flagCount >= cell.getAdjacentMines()) {
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (inBounds(r + dr, c + dc)) {
+                                openCell(r + dr, c + dc);
+                            }
+                        }
+                    }
+                }
+            } else {
+                openCell(r, c);
+            }
         }
     }
 
