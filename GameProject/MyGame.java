@@ -22,7 +22,12 @@ public class MyGame {
             { new ImageSequence("src/special_move/", "png", 6) }
         };
 
-        MineBoard board = new MineBoard();
+        MineBoard board = new MineBoard.Builder()
+                        .setBoardSize(1080, 648)    // 設定板面寬高
+                        .setTileSize(108)               // 設定每格大小
+                        .setBoardOffset(0, 72)          // 設定上方計分板預留高度
+                        .setMineCount(10)                   // 設定地雷總數
+                        .build();                                // 產出地圖
         myroles.add(new BoardRole(board));
 
         MyRole player = new MyRole(200, 350, 100, 100, 0, -100, 400, is, board);
