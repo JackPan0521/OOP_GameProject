@@ -48,10 +48,10 @@ public class BoardRole implements Role {
 
             // ✅ 直接繪製地圖（地圖內部自己扣 cameraX/cameraY）
             // ✅ 不做 g.translate，不呼叫 player.display（MyRole 自己換算螢幕座標）
-            board.draw(g);
+            board.draw(g, player.getPlayerData());
 
         } else if (board != null) {
-            board.draw(g);
+            board.draw(g, null);
         }
     }
 }

@@ -1,7 +1,10 @@
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.RenderingHints;
 import java.io.File;
 import java.util.Random;
 import javax.imageio.ImageIO;
@@ -28,6 +31,7 @@ public class MineBoard {
     private int cameraY = 0;
 
     private boolean gameOver = false;
+    private boolean mineHitPending = false; // 本幀踩到地雷，等外部來處理
     private int elapsedTime = 0;
     private long startTime = -1;
 
@@ -118,6 +122,15 @@ public class MineBoard {
     public int getTileSize() { return this.tileSize; }
     public int getBoardTop() { return this.boardTop; }
     public boolean isGameOver() { return this.gameOver; }
+    public void setGameOver(boolean val) {
+        this.gameOver = val;
+        if (val) revealAllMines();
+    }
+    /** 每幀呼叫一次：若本幀踩到地雷回傳 true，並自動清除旗標 */
+    public boolean pollMineHit() {
+        if (mineHitPending) { mineHitPending = false; return true; }
+        return false;
+    }
     public int getElapsedTime() { return this.elapsedTime; }
 
     private void updateTime() {
@@ -125,7 +138,7 @@ public class MineBoard {
         elapsedTime = (int) ((System.currentTimeMillis() - startTime) / 1000);
     }
 
-    public void openAtPixel(int pixelX, int pixelY) {
+    public void openAtPixel(int pixelX, int pixelY, PlayerData playerData, int currentWave) {
         if (gameOver || isBigLevelCleared()) return;
         int c = (pixelX - boardLeft) / tileSize;
         int r = (pixelY - boardTop) / tileSize;
@@ -153,13 +166,13 @@ public class MineBoard {
                     for (int dr = -1; dr <= 1; dr++) {
                         for (int dc = -1; dc <= 1; dc++) {
                             if (inBounds(r + dr, c + dc)) {
-                                openCell(r + dr, c + dc);
+                                openCell(r + dr, c + dc, playerData, currentWave);
                             }
                         }
                     }
                 }
             } else {
-                openCell(r, c);
+                openCell(r, c, playerData, currentWave);
             }
         }
     }
@@ -226,15 +239,15 @@ public class MineBoard {
         }
     }
 
-    private void openCell(int r, int c) {
+    private void openCell(int r, int c, PlayerData playerData, int currentWave) {
         Cell cell = cells[r][c];
         if (cell.isRevealed() || cell.isFlagged()) return;
 
         cell.setRevealed(true);
 
         if (cell.isMine()) {
-            gameOver = true;
-            revealAllMines();
+            mineHitPending = true; // 通知外部處理扣血，不在這裡決定 gameOver
+            cell.setRevealed(true);
             return;
         }
 
@@ -242,7 +255,7 @@ public class MineBoard {
             for (int dr = -1; dr <= 1; dr++) {
                 for (int dc = -1; dc <= 1; dc++) {
                     if (inBounds(r + dr, c + dc)) {
-                        openCell(r + dr, c + dc);
+                        openCell(r + dr, c + dc, playerData, currentWave);
                     }
                 }
             }
@@ -304,7 +317,7 @@ public class MineBoard {
         return count;
     }
 
-    public void draw(Graphics g) {
+    public void draw(Graphics g, PlayerData playerData) {
         if (unopenTile == null) return;
 
         // 💡 所有的格子繪製都要手動扣除攝影機偏移量 (cameraX, cameraY)
@@ -364,22 +377,68 @@ public class MineBoard {
         g.setColor(Color.DARK_GRAY);
         g.drawRect(0, 0, 1080 - 1, boardTop - 1);
 
-        g.setFont(new Font("Monospaced", Font.BOLD, 26));
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // --- 左側：地雷數 ---
+        g2.setFont(new Font("Monospaced", Font.BOLD, 24));
         int remainingMines = totalMineCount - getFlagCount();
-        g.setColor(Color.RED);
-        g.drawString(String.format("MINES: %03d", remainingMines), 30, 45);
+        g2.setColor(new Color(200, 40, 40));
+        g2.drawString(String.format("💣 %03d", remainingMines), 20, 46);
 
-        g.setColor(Color.BLACK);
-        g.drawString(String.format("TIME: %03d", elapsedTime), 1080 - 200, 45);
+        // --- 中間偏左：HP Bar ---
+        if (playerData != null) {
+            int hp    = playerData.getCurrentHp();
+            int maxHp = playerData.getMaxHp();
 
+            // HP 文字
+            g2.setFont(new Font("Monospaced", Font.BOLD, 18));
+            g2.setColor(Color.DARK_GRAY);
+            g2.drawString(String.format("HP %d/%d", hp, maxHp), 330, 24);
+
+            // 進度條背景
+            int barX = 330, barY = 30, barW = 260, barH = 20;
+            g2.setColor(new Color(60, 20, 20));
+            g2.fillRoundRect(barX, barY, barW, barH, 8, 8);
+
+            // 進度條填色（綠→黃→紅 依血量比例）
+            float ratio = (float) hp / maxHp;
+            int filled  = (int)(ratio * barW);
+            Color barColor;
+            if      (ratio > 0.6f) barColor = new Color(60, 210, 80);
+            else if (ratio > 0.3f) barColor = new Color(230, 190, 30);
+            else                   barColor = new Color(220, 50, 50);
+
+            if (filled > 0) {
+                g2.setColor(barColor);
+                g2.fillRoundRect(barX, barY, filled, barH, 8, 8);
+            }
+
+            // 進度條外框
+            g2.setColor(new Color(180, 180, 180));
+            g2.setStroke(new BasicStroke(1.5f));
+            g2.drawRoundRect(barX, barY, barW, barH, 8, 8);
+
+            // --- 分數 ---
+            g2.setFont(new Font("Monospaced", Font.BOLD, 20));
+            g2.setColor(new Color(50, 50, 50));
+            g2.drawString(String.format("PT: %d", playerData.getScore()), 620, 46);
+        }
+
+        // --- 右側：時間 ---
+        g2.setFont(new Font("Monospaced", Font.BOLD, 24));
+        g2.setColor(Color.DARK_GRAY);
+        g2.drawString(String.format("⏱ %03d", elapsedTime), 870, 46);
+
+        // --- 中央提示（通關 / Game Over）---
         if (isBigLevelCleared()) {
-            g.setFont(new Font("Arial", Font.BOLD, 28));
-            g.setColor(Color.GREEN);
-            g.drawString("STAGE CLEAR! Press 'R' for Next Wave!", 250, 45);
+            g2.setFont(new Font("Arial", Font.BOLD, 26));
+            g2.setColor(new Color(30, 160, 30));
+            g2.drawString("STAGE CLEAR!  Press 'R' for Next Wave!", 220, 46);
         } else if (gameOver) {
-            g.setFont(new Font("Arial", Font.BOLD, 28));
-            g.setColor(Color.RED);
-            g.drawString("GAME OVER! Press 'R' to Retry!", 300, 45);
+            g2.setFont(new Font("Arial", Font.BOLD, 26));
+            g2.setColor(new Color(200, 30, 30));
+            g2.drawString("GAME OVER!  Press 'R' to Retry!", 260, 46);
         }
     }
 

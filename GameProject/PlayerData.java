@@ -72,14 +72,24 @@ public class PlayerData {
     // -------------------------------------------------------
     // 扣血（考慮防禦減傷）
     // -------------------------------------------------------
-    public void takeDamage(int dmg) {
-        int finalDmg = Math.max(1, dmg - defense);
+    public void takeDamage(int wave) {
+        // 1. 計算基礎比例傷害 (最大血量的 25%)
+        int baseDmg = (int)(maxHp * 0.25);
+        // 2. 加上關卡難度加成 (每關多 5 點傷害)
+        int waveBonus = wave * 5;
+        // 3. 扣除防禦力，並設定保底傷害為 10
+        int finalDmg = Math.max(10, (baseDmg + waveBonus) - defense);
+        
         currentHp -= finalDmg;
         if (currentHp < 0) currentHp = 0;
     }
 
     public void heal(int amount) {
         currentHp = Math.min(currentHp + amount, maxHp);
+    }
+
+    public void resetHp(){
+        currentHp = maxHp;
     }
 
     // -------------------------------------------------------
@@ -92,4 +102,5 @@ public class PlayerData {
     public int getMaxHp()      { return maxHp; }
     public int getDefense()    { return defense; }
     public int getSpeed()      { return speed; }
+    public boolean isDead()    {return currentHp <=0;}
 }

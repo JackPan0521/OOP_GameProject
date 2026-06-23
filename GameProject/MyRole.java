@@ -88,6 +88,14 @@ public class MyRole extends SampleRole5 {
         }
 
         if (model != null) model.setState(this.x, this.y);
+
+        // 每幀檢查是否踩到地雷
+        if (board != null && board.pollMineHit()) {
+            playerData.takeDamage(wave);
+            if (playerData.isDead()) {
+                board.setGameOver(true); // 血量歸零才真正 Game Over
+            }
+        }
     }
 
     // 自行換算世界座標 → 螢幕座標
@@ -126,7 +134,7 @@ public class MyRole extends SampleRole5 {
 
             case KeyEvent.VK_F:
                 if (!shopOpen && board != null) {
-                    board.openAtPixel(x + w / 2, y + h - 1);
+                    board.openAtPixel(x + w / 2, y + h - 1, playerData, wave);
                 }
                 break;
 
@@ -142,7 +150,10 @@ public class MyRole extends SampleRole5 {
                     if (board.isBigLevelCleared()) {
                         int reward = Math.max(10, 300 - board.getElapsedTime() * 2);
                         playerData.addScore(reward);
-                        wave++; // 通關才升關
+                        wave++;
+                    } else {
+                        // Game Over（血量歸零）重試：重置 HP，分數不重置
+                        playerData.resetHp();
                     }
                     int minesPerZone = Math.min(5 + (wave - 1), 20);
                     int minesZone    = Math.min(wave, 5); // 區塊數：wave1=2, wave2=3 ... 上限5
