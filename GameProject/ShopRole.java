@@ -25,17 +25,18 @@ public class ShopRole implements Role, KeyListener {
         "[C] 經驗加倍  (本關獎勵×2)"
     };
 
-    // --- 購買回饋訊息 ---
     private String feedbackMsg   = "";
-    private boolean feedbackGood = true;   // true=成功(綠), false=失敗(紅)
-    private int     feedbackTick = 0;      // 剩餘顯示幀數
-    private static final int FEEDBACK_DURATION = 90; // 約 1.5 秒（60fps）
+    private boolean feedbackGood = true;
+    private int     feedbackTick = 0;
+    private static final int FEEDBACK_DURATION = 90;
+    private SoundManager soundManager;
 
     public ShopRole(PlayerData playerData, MyRole player) {
         this.playerData = playerData;
         this.player     = player;
     }
 
+    public void setSoundManager(SoundManager sm) { this.soundManager = sm; }
     public boolean isOpen() { return open; }
 
     // -------------------------------------------------------
@@ -324,6 +325,7 @@ public class ShopRole implements Role, KeyListener {
         if (success) {
             feedbackMsg  = "✔  " + itemName + (index >= 3 ? " 解鎖！" : " 升級成功！");
             feedbackGood = true;
+            if (soundManager != null) soundManager.playMoney();
         } else {
             boolean alreadyUnlocked = index >= 3 && playerData.isSkillUnlocked(index - 3);
             boolean maxed = (index == 2 && playerData.getSpeed() >= 20);
@@ -331,6 +333,7 @@ public class ShopRole implements Role, KeyListener {
             else if (maxed)        feedbackMsg = "✘  已達上限！";
             else                   feedbackMsg = "✘  點數不足！";
             feedbackGood = false;
+            if (soundManager != null) soundManager.playNo();
         }
         feedbackTick = FEEDBACK_DURATION;
     }

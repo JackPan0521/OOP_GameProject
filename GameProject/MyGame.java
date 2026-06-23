@@ -30,18 +30,18 @@ public class MyGame {
         BoardRole boardRole = new BoardRole(board);
         myroles.add(boardRole);
 
-        // 3. 玩家角色
+        // 3. 玩家角色（SoundManager 在 getReady() 裡初始化，避免 Toolkit 錯誤）
         MyRole player = new MyRole(200, 350, 64, 64, 0, -100, 400, is, board);
         player.setBoardRole(boardRole);
         boardRole.setPlayer(player);
         myroles.add(player);
 
-        // 4. 商店（加在最後，確保畫在最上層）
+        // 4. 商店
         ShopRole shop = new ShopRole(player.getPlayerData(), player);
         player.setShopRole(shop);
         myroles.add(shop);
 
-        // 5. 註冊鍵盤事件（玩家 + 商店都需要）
+        // 5. 註冊鍵盤事件
         gameEngine.registerKeyEventHandler(player);
         gameEngine.registerKeyEventHandler(shop);
 

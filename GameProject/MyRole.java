@@ -12,9 +12,12 @@ public class MyRole extends SampleRole5 {
 
     private MineBoard  board;
     private BoardRole  boardRole;
-    private ShopRole   shopRole;                        // 商店參考，用來判斷是否暫停
+    private ShopRole   shopRole;
+    private SoundManager soundManager;
     private PlayerData playerData = new PlayerData();
-    private int wave = 1; // 目前關卡數，每過一關 +1
+    private int wave = 1;
+    private boolean wasCleared  = false; // 上一幀是否已通關
+    private boolean wasGameOver = false; // 上一幀是否已失敗
 
     // -------------------------------------------------------
     // 建構子
@@ -33,11 +36,12 @@ public class MyRole extends SampleRole5 {
     // -------------------------------------------------------
     // Setters
     // -------------------------------------------------------
-    public void setBoardRole(BoardRole boardRole) { this.boardRole = boardRole; }
-    public void setShopRole(ShopRole shopRole)    { this.shopRole  = shopRole;  }
-    public void setBoard(MineBoard board)         { this.board     = board;     }
-    public void setSpeed(int speed)               { this.speed     = speed;     }
-    public int  getWave()                         { return wave;                }
+    public void setBoardRole(BoardRole boardRole) { this.boardRole   = boardRole; }
+    public void setShopRole(ShopRole shopRole)    { this.shopRole    = shopRole;  }
+    public void setBoard(MineBoard board)         { this.board       = board;     }
+    public void setSpeed(int speed)               { this.speed       = speed;     }
+    public void setSoundManager(SoundManager sm)  { this.soundManager = sm;       }
+    public int  getWave()                         { return wave;                  }
 
     public PlayerData getPlayerData() { return this.playerData; }
 
@@ -49,6 +53,13 @@ public class MyRole extends SampleRole5 {
         super.getReady();
         dx = 0; dy = 0;
         dim1 = 0; dim2 = 0;
+
+        // 引擎啟動後才初始化音效，避免 Toolkit not initialized
+        soundManager = new SoundManager();
+        soundManager.playBGM();
+
+        // 同步給商店
+        if (shopRole != null) shopRole.setSoundManager(soundManager);
     }
 
     @Override
@@ -89,11 +100,23 @@ public class MyRole extends SampleRole5 {
 
         if (model != null) model.setState(this.x, this.y);
 
+        // 偵測通關/失敗狀態變化，只在「剛發生那一幀」播音效
+        if (board != null && soundManager != null) {
+            boolean cleared = board.isBigLevelCleared();
+            boolean over    = board.isGameOver();
+            if (cleared && !wasCleared) soundManager.playGameWin();
+            if (over    && !wasGameOver && !cleared) soundManager.playGameOver();
+            wasCleared  = cleared;
+            wasGameOver = over;
+        }
+
         // 每幀檢查是否踩到地雷
         if (board != null && board.pollMineHit()) {
-            boolean reallyHurt = playerData.takeDamage(wave); // 護盾攔截時回傳 false
+            if (soundManager != null) soundManager.playBoom();
+            boolean reallyHurt = playerData.takeDamage(wave);
             if (reallyHurt && playerData.isDead()) {
                 board.setGameOver(true);
+                if (soundManager != null) soundManager.playGameOver();
             }
         }
     }
@@ -145,20 +168,24 @@ public class MyRole extends SampleRole5 {
                 break;
 
             case KeyEvent.VK_Z:
-                // 技能0：啟動防爆護盾
-                if (!shopOpen) playerData.activateShield();
+                if (!shopOpen) {
+                    boolean ok = playerData.activateShield();
+                    if (ok && soundManager != null) soundManager.playSkill();
+                }
                 break;
 
             case KeyEvent.VK_X:
-                // 技能1：自動標示最近 3 顆炸彈
                 if (!shopOpen && board != null && playerData.isSkillUnlocked(1)) {
-                    board.autoFlagNearestMines(x + w / 2, y + h / 2, 3);
+                    int flagged = board.autoFlagNearestMines(x + w / 2, y + h / 2, 3);
+                    if (flagged > 0 && soundManager != null) soundManager.playSkill();
                 }
                 break;
 
             case KeyEvent.VK_C:
-                // 技能2：啟動經驗加倍（本關獎勵×2）
-                if (!shopOpen) playerData.activateExpBoost();
+                if (!shopOpen) {
+                    boolean ok = playerData.activateExpBoost();
+                    if (ok && soundManager != null) soundManager.playSkill();
+                }
                 break;
 
             case KeyEvent.VK_R:
@@ -166,15 +193,17 @@ public class MyRole extends SampleRole5 {
                         && (board.isBigLevelCleared() || board.isGameOver())) {
                     if (board.isBigLevelCleared()) {
                         int reward = Math.max(10, 300 - board.getElapsedTime() * 2);
-                        if (playerData.isExpBoostActive()) reward *= 2; // 技能2：加倍
+                        if (playerData.isExpBoostActive()) reward *= 2;
                         playerData.addScore(reward);
-                        playerData.resetExpBoost();   // 經驗加倍用完
-                        playerData.consumeShield();   // 護盾過關清除
+                        playerData.resetExpBoost();
+                        playerData.consumeShield();
                         wave++;
+                        if (soundManager != null) soundManager.playBGM(); // 重啟 BGM
                     } else {
                         playerData.resetHp();
                         playerData.resetExpBoost();
                         playerData.consumeShield();
+                        if (soundManager != null) soundManager.playBGM(); // 重啟 BGM
                     }
                     int minesPerZone = Math.min(5 + (wave - 1), 20);
                     int minesZone    = Math.min(wave, 5); // 區塊數：wave1=2, wave2=3 ... 上限5
