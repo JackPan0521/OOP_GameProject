@@ -2,7 +2,7 @@ import java.awt.event.*;
 import java.awt.Graphics;
 import game.framework.*;
 
-public class MyRole extends SampleRole5 {
+public class MyRole extends SampleRole5 implements IObserver {
     private int speed = 10;
 
     private boolean movingUp    = false;
@@ -16,8 +16,6 @@ public class MyRole extends SampleRole5 {
     private SoundManager soundManager;
     private PlayerData playerData = new PlayerData();
     private int wave = 1;
-    private boolean wasCleared  = false; // 上一幀是否已通關
-    private boolean wasGameOver = false; // 上一幀是否已失敗
 
     // -------------------------------------------------------
     // 建構子
@@ -46,6 +44,37 @@ public class MyRole extends SampleRole5 {
     public PlayerData getPlayerData() { return this.playerData; }
 
     // -------------------------------------------------------
+    // IObserver 實作：同時訂閱兩個 Subject
+    //   1) MineBoard -> MINE_HIT / GAME_OVER / STAGE_CLEARED
+    //   2) ShopRole  -> PURCHASE_OK / PURCHASE_FAIL
+    // -------------------------------------------------------
+    @Override
+    public void update(GameEvent event) {
+        switch (event) {
+            case MINE_HIT:
+                if (soundManager != null) soundManager.playBoom();
+                boolean reallyHurt = playerData.takeDamage(wave);
+                if (reallyHurt && playerData.isDead() && board != null)
+                    board.setGameOver(true);
+                break;
+            case GAME_OVER:
+                if (soundManager != null) soundManager.playGameOver();
+                break;
+            case STAGE_CLEARED:
+                if (soundManager != null) soundManager.playGameWin();
+                break;
+            case PURCHASE_OK:
+                if (soundManager != null) soundManager.playMoney();
+                break;
+            case PURCHASE_FAIL:
+                if (soundManager != null) soundManager.playNo();
+                break;
+            default:
+                break;
+        }
+    }
+
+    // -------------------------------------------------------
     // Role 生命週期
     // -------------------------------------------------------
     @Override
@@ -58,8 +87,9 @@ public class MyRole extends SampleRole5 {
         soundManager = new SoundManager();
         soundManager.playBGM();
 
-        // 同步給商店
-        if (shopRole != null) shopRole.setSoundManager(soundManager);
+        // === Observer 訂閱：把自己註冊到 board 與 shopRole ===
+        if (board != null) board.addObserver(this);
+        if (shopRole != null) shopRole.addObserver(this);
     }
 
     @Override
@@ -99,26 +129,6 @@ public class MyRole extends SampleRole5 {
         }
 
         if (model != null) model.setState(this.x, this.y);
-
-        // 偵測通關/失敗狀態變化，只在「剛發生那一幀」播音效
-        if (board != null && soundManager != null) {
-            boolean cleared = board.isBigLevelCleared();
-            boolean over    = board.isGameOver();
-            if (cleared && !wasCleared) soundManager.playGameWin();
-            if (over    && !wasGameOver && !cleared) soundManager.playGameOver();
-            wasCleared  = cleared;
-            wasGameOver = over;
-        }
-
-        // 每幀檢查是否踩到地雷
-        if (board != null && board.pollMineHit()) {
-            if (soundManager != null) soundManager.playBoom();
-            boolean reallyHurt = playerData.takeDamage(wave);
-            if (reallyHurt && playerData.isDead()) {
-                board.setGameOver(true);
-                if (soundManager != null) soundManager.playGameOver();
-            }
-        }
     }
 
     // 自行換算世界座標 → 螢幕座標
@@ -198,24 +208,28 @@ public class MyRole extends SampleRole5 {
                         playerData.resetExpBoost();
                         playerData.consumeShield();
                         wave++;
-                        if (soundManager != null) soundManager.playBGM(); // 重啟 BGM
                     } else {
                         playerData.resetHp();
                         playerData.resetExpBoost();
                         playerData.consumeShield();
-                        if (soundManager != null) soundManager.playBGM(); // 重啟 BGM
                     }
                     int minesPerZone = Math.min(5 + (wave - 1), 20);
-                    int minesZone    = Math.min(wave, 5); // 區塊數：wave1=2, wave2=3 ... 上限5
+                    int minesZone    = Math.min(wave, 5);
                     MineBoard newBoard = new MineBoard.Builder()
                             .setZoneDimensions(minesZone, minesZone, 64)
                             .setBoardOffset(0, 72)
                             .setMinesPerZone(minesPerZone)
                             .build();
+
+                    // 從舊 board 移除，向新 board 重新訂閱
+                    if (board != null) board.removeObserver(this);
+                    newBoard.addObserver(this);
+
                     this.setBoard(newBoard);
                     if (boardRole != null) boardRole.setBoard(newBoard);
                     this.x = 200;
                     this.y = 200;
+                    if (soundManager != null) soundManager.playBGM();
                 }
                 break;
 

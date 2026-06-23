@@ -6,10 +6,12 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import javax.imageio.ImageIO;
 
-public class MineBoard {
+public class MineBoard implements IObservable {
     public static final int ZONE_SIZE = 8; 
 
     private final int tileSize;      
@@ -19,8 +21,8 @@ public class MineBoard {
     private final int totalCols;     
     private final int boardLeft;     
     private final int boardTop;      
-    private final int minePerZone;   // 每個區塊最多的地雷數
-    private int totalMineCount = 0;  // 實際放置的總地雷數（生成後才知道）
+    private final int minePerZone;
+    private int totalMineCount = 0;
 
     private boolean generated = false;
     private Cell[][] cells;
@@ -31,9 +33,12 @@ public class MineBoard {
     private int cameraY = 0;
 
     private boolean gameOver = false;
-    private boolean mineHitPending = false; // 本幀踩到地雷，等外部來處理
+    private boolean clearedEventFired = false;
     private int elapsedTime = 0;
     private long startTime = -1;
+
+    // Observer 列表
+    private final List<IObserver> observers = new ArrayList<>();
 
     private Image unopenTile;
     private Image flagTile;
@@ -121,15 +126,34 @@ public class MineBoard {
     public int getTotalCols() { return this.totalCols; }
     public int getTileSize() { return this.tileSize; }
     public int getBoardTop() { return this.boardTop; }
+    // -------------------------------------------------------
+    // IObservable 實作
+    // -------------------------------------------------------
+    @Override
+    public void addObserver(IObserver o) {
+        if (!observers.contains(o)) observers.add(o);
+    }
+
+    @Override
+    public void removeObserver(IObserver o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(GameEvent event) {
+        for (IObserver o : new ArrayList<>(observers)) {
+            o.update(event);
+        }
+    }
+
     public boolean isGameOver() { return this.gameOver; }
+
     public void setGameOver(boolean val) {
         this.gameOver = val;
-        if (val) revealAllMines();
-    }
-    /** 每幀呼叫一次：若本幀踩到地雷回傳 true，並自動清除旗標 */
-    public boolean pollMineHit() {
-        if (mineHitPending) { mineHitPending = false; return true; }
-        return false;
+        if (val) {
+            revealAllMines();
+            notifyObservers(GameEvent.GAME_OVER);
+        }
     }
     public int getElapsedTime() { return this.elapsedTime; }
 
@@ -278,8 +302,8 @@ public class MineBoard {
         cell.setRevealed(true);
 
         if (cell.isMine()) {
-            mineHitPending = true; // 通知外部處理扣血，不在這裡決定 gameOver
             cell.setRevealed(true);
+            notifyObservers(GameEvent.MINE_HIT);
             return;
         }
 
@@ -315,6 +339,10 @@ public class MineBoard {
 
         if (allClear) {
             zoneCleared[zr][zc] = true;
+            if (!clearedEventFired && isBigLevelCleared()) {
+                clearedEventFired = true;
+                notifyObservers(GameEvent.STAGE_CLEARED);
+            }
         }
     }
 

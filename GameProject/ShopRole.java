@@ -2,8 +2,10 @@ import game.framework.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.Rectangle;
+import java.util.List;
+import java.util.ArrayList;
 
-public class ShopRole implements Role, KeyListener {
+public class ShopRole implements Role, KeyListener, IObservable {
 
     private static final int W = 1080;
     private static final int H = 720;
@@ -29,14 +31,37 @@ public class ShopRole implements Role, KeyListener {
     private boolean feedbackGood = true;
     private int     feedbackTick = 0;
     private static final int FEEDBACK_DURATION = 90;
-    private SoundManager soundManager;
+
+    // Observer 列表：商店是「購買事件」的發布者（Subject）
+    private final List<IObserver> observers = new ArrayList<>();
 
     public ShopRole(PlayerData playerData, MyRole player) {
         this.playerData = playerData;
         this.player     = player;
     }
 
-    public void setSoundManager(SoundManager sm) { this.soundManager = sm; }
+    // -------------------------------------------------------
+    // IObservable 實作：商店是 PURCHASE_OK / PURCHASE_FAIL 事件的發布者
+    // 「誰擁有資料變化，誰就該是 Subject」——購買成功/失敗發生在這裡，
+    // 所以由 ShopRole 自己負責 notifyObservers，而不是被動等別人通知。
+    // -------------------------------------------------------
+    @Override
+    public void addObserver(IObserver o) {
+        if (!observers.contains(o)) observers.add(o);
+    }
+
+    @Override
+    public void removeObserver(IObserver o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(GameEvent event) {
+        for (IObserver o : new ArrayList<>(observers)) {
+            o.update(event);
+        }
+    }
+
     public boolean isOpen() { return open; }
 
     // -------------------------------------------------------
@@ -325,7 +350,7 @@ public class ShopRole implements Role, KeyListener {
         if (success) {
             feedbackMsg  = "✔  " + itemName + (index >= 3 ? " 解鎖！" : " 升級成功！");
             feedbackGood = true;
-            if (soundManager != null) soundManager.playMoney();
+            notifyObservers(GameEvent.PURCHASE_OK);
         } else {
             boolean alreadyUnlocked = index >= 3 && playerData.isSkillUnlocked(index - 3);
             boolean maxed = (index == 2 && playerData.getSpeed() >= 20);
@@ -333,7 +358,7 @@ public class ShopRole implements Role, KeyListener {
             else if (maxed)        feedbackMsg = "✘  已達上限！";
             else                   feedbackMsg = "✘  點數不足！";
             feedbackGood = false;
-            if (soundManager != null) soundManager.playNo();
+            notifyObservers(GameEvent.PURCHASE_FAIL);
         }
         feedbackTick = FEEDBACK_DURATION;
     }
