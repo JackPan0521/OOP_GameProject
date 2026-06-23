@@ -152,17 +152,19 @@ public class MineBoard {
 
             Cell cell = cells[r][c];
 
-            // Chord 操作：對已翻開的數字格按 F，若周圍旗子數 >= 相鄰地雷數，自動翻開所有未插旗鄰居
+            // Chord 操作：對已翻開的數字格按 F，若周圍（旗幟數 + 已翻開炸彈數）>= 相鄰地雷數，自動翻開所有未插旗鄰居
             if (cell.isRevealed() && cell.getAdjacentMines() > 0) {
-                int flagCount = 0;
+                int markedCount = 0;
                 for (int dr = -1; dr <= 1; dr++) {
                     for (int dc = -1; dc <= 1; dc++) {
-                        if (inBounds(r + dr, c + dc) && cells[r + dr][c + dc].isFlagged()) {
-                            flagCount++;
+                        if (!inBounds(r + dr, c + dc)) continue;
+                        Cell nb = cells[r + dr][c + dc];
+                        if (nb.isFlagged() || (nb.isRevealed() && nb.isMine())) {
+                            markedCount++;
                         }
                     }
                 }
-                if (flagCount >= cell.getAdjacentMines()) {
+                if (markedCount >= cell.getAdjacentMines()) {
                     for (int dr = -1; dr <= 1; dr++) {
                         for (int dc = -1; dc <= 1; dc++) {
                             if (inBounds(r + dr, c + dc)) {
@@ -175,6 +177,36 @@ public class MineBoard {
                 openCell(r, c, playerData, currentWave);
             }
         }
+    }
+
+    /**
+     * 技能1：自動標示距離 (pixelX, pixelY) 最近的 count 顆未翻開地雷
+     * 已插旗或已翻開的地雷不重複標示
+     */
+    public int autoFlagNearestMines(int pixelX, int pixelY, int count) {
+        if (!generated) return 0; // 地雷還未生成
+        int originC = (pixelX - boardLeft) / tileSize;
+        int originR = (pixelY - boardTop)  / tileSize;
+
+        // 收集所有「未翻開、未插旗、是地雷」的格子，並計算距離
+        java.util.List<int[]> candidates = new java.util.ArrayList<>();
+        for (int r = 0; r < totalRows; r++) {
+            for (int c = 0; c < totalCols; c++) {
+                Cell cell = cells[r][c];
+                if (cell.isMine() && !cell.isRevealed() && !cell.isFlagged()) {
+                    int dr = r - originR, dc = c - originC;
+                    candidates.add(new int[]{r, c, dr * dr + dc * dc});
+                }
+            }
+        }
+        // 依距離排序，取最近 count 顆插旗
+        candidates.sort((a, b) -> a[2] - b[2]);
+        int flagged = 0;
+        for (int i = 0; i < Math.min(count, candidates.size()); i++) {
+            cells[candidates.get(i)[0]][candidates.get(i)[1]].setFlagged(true);
+            flagged++;
+        }
+        return flagged;
     }
 
     public void toggleFlagAtPixel(int pixelX, int pixelY) {

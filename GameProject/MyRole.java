@@ -91,9 +91,9 @@ public class MyRole extends SampleRole5 {
 
         // 每幀檢查是否踩到地雷
         if (board != null && board.pollMineHit()) {
-            playerData.takeDamage(wave);
-            if (playerData.isDead()) {
-                board.setGameOver(true); // 血量歸零才真正 Game Over
+            boolean reallyHurt = playerData.takeDamage(wave); // 護盾攔截時回傳 false
+            if (reallyHurt && playerData.isDead()) {
+                board.setGameOver(true);
             }
         }
     }
@@ -144,16 +144,37 @@ public class MyRole extends SampleRole5 {
                 }
                 break;
 
+            case KeyEvent.VK_Z:
+                // 技能0：啟動防爆護盾
+                if (!shopOpen) playerData.activateShield();
+                break;
+
+            case KeyEvent.VK_X:
+                // 技能1：自動標示最近 3 顆炸彈
+                if (!shopOpen && board != null && playerData.isSkillUnlocked(1)) {
+                    board.autoFlagNearestMines(x + w / 2, y + h / 2, 3);
+                }
+                break;
+
+            case KeyEvent.VK_C:
+                // 技能2：啟動經驗加倍（本關獎勵×2）
+                if (!shopOpen) playerData.activateExpBoost();
+                break;
+
             case KeyEvent.VK_R:
                 if (!shopOpen && board != null
                         && (board.isBigLevelCleared() || board.isGameOver())) {
                     if (board.isBigLevelCleared()) {
                         int reward = Math.max(10, 300 - board.getElapsedTime() * 2);
+                        if (playerData.isExpBoostActive()) reward *= 2; // 技能2：加倍
                         playerData.addScore(reward);
+                        playerData.resetExpBoost();   // 經驗加倍用完
+                        playerData.consumeShield();   // 護盾過關清除
                         wave++;
                     } else {
-                        // Game Over（血量歸零）重試：重置 HP，分數不重置
                         playerData.resetHp();
+                        playerData.resetExpBoost();
+                        playerData.consumeShield();
                     }
                     int minesPerZone = Math.min(5 + (wave - 1), 20);
                     int minesZone    = Math.min(wave, 5); // 區塊數：wave1=2, wave2=3 ... 上限5

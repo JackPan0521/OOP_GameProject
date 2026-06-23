@@ -8,22 +8,36 @@ public class PlayerData {
     // === 防禦 ===
     private int defense = 0;
 
-    // === 移動速度（初始值，實際套用在 MyRole） ===
+    // === 移動速度 ===
     private int speed = 10;
 
-    // === 特殊技能槽（未來擴充用） ===
-    // skill[0] = 提示地雷位置  (level 0 = 未解鎖, 1+ = 已解鎖/升級)
-    private int[] skillLevel = new int[4]; // 預留 4 個技能槽
+    // -------------------------------------------------------
+    // 技能系統
+    // skill[0] = 抵禦爆炸   (解鎖後按 Z 啟動，用完或過關消耗)
+    // skill[1] = 自動標示   (解鎖後按 X 啟動，標示最近3顆炸彈)
+    // skill[2] = 經驗加倍   (解鎖後按 C 啟動，本關獎勵×2)
+    // -------------------------------------------------------
+    private boolean[] skillUnlocked = new boolean[3]; // 是否已購買解鎖
+    private boolean   shieldActive  = false;          // 技能0：防爆護盾是否啟動中
+    private boolean   expBoostActive = false;         // 技能2：經驗加倍是否啟動中
 
     // -------------------------------------------------------
     // 升級費用
     // -------------------------------------------------------
-    public int getHpUpgradeCost()    { return maxHp * 2; }
-    public int getDefUpgradeCost()   { return (defense + 1) * 100; }
-    public int getSpeedUpgradeCost() { return (speed - 9) * 150; }  // 10→11 cost 150, 11→12 cost 300 ...
+    public int getHpUpgradeCost()      { return maxHp * 2; }
+    public int getDefUpgradeCost()     { return (defense + 1) * 100; }
+    public int getSpeedUpgradeCost()   { return (speed - 9) * 150; }
+    public int getSkillUnlockCost(int i) {
+        switch (i) {
+            case 0: return 300;  // 防爆護盾
+            case 1: return 200;  // 自動標示
+            case 2: return 250;  // 經驗加倍
+            default: return 9999;
+        }
+    }
 
     // -------------------------------------------------------
-    // 升級動作
+    // 屬性升級
     // -------------------------------------------------------
     public boolean upgradeHp() {
         if (score < getHpUpgradeCost()) return false;
@@ -41,7 +55,7 @@ public class PlayerData {
     }
 
     public boolean upgradeSpeed() {
-        if (speed >= 20) return false;          // 速度上限
+        if (speed >= 20) return false;
         if (score < getSpeedUpgradeCost()) return false;
         score -= getSpeedUpgradeCost();
         speed += 1;
@@ -49,58 +63,82 @@ public class PlayerData {
     }
 
     // -------------------------------------------------------
-    // 特殊技能（預留介面，未來填入邏輯）
-    // skillIndex: 0 = 地雷提示, 1~3 = 保留
+    // 技能解鎖（商店購買）
     // -------------------------------------------------------
-    public int getSkillUpgradeCost(int skillIndex) {
-        return (skillLevel[skillIndex] + 1) * 200;
-    }
-
-    public boolean upgradeSkill(int skillIndex) {
-        if (skillIndex < 0 || skillIndex >= skillLevel.length) return false;
-        if (score < getSkillUpgradeCost(skillIndex)) return false;
-        score -= getSkillUpgradeCost(skillIndex);
-        skillLevel[skillIndex]++;
+    public boolean unlockSkill(int i) {
+        if (i < 0 || i >= 3) return false;
+        if (skillUnlocked[i]) return false;           // 已解鎖不能再買
+        if (score < getSkillUnlockCost(i)) return false;
+        score -= getSkillUnlockCost(i);
+        skillUnlocked[i] = true;
         return true;
     }
 
-    public int getSkillLevel(int skillIndex) {
-        if (skillIndex < 0 || skillIndex >= skillLevel.length) return 0;
-        return skillLevel[skillIndex];
+    public boolean isSkillUnlocked(int i) {
+        return (i >= 0 && i < 3) && skillUnlocked[i];
     }
 
     // -------------------------------------------------------
-    // 扣血（考慮防禦減傷）
+    // 技能啟動（玩家按鍵觸發）
     // -------------------------------------------------------
-    public void takeDamage(int wave) {
-        // 1. 計算基礎比例傷害 (最大血量的 25%)
-        int baseDmg = (int)(maxHp * 0.25);
-        // 2. 加上關卡難度加成 (每關多 5 點傷害)
+
+    /** 技能0：啟動防爆護盾（解鎖後才能用）*/
+    public boolean activateShield() {
+        if (!skillUnlocked[0] || shieldActive) return false;
+        shieldActive = true;
+        return true;
+    }
+
+    /** 技能0：護盾是否啟動中 */
+    public boolean isShieldActive() { return shieldActive; }
+
+    /** 技能0：消耗護盾（被炸到或過關時呼叫）*/
+    public void consumeShield() { shieldActive = false; }
+
+    /** 技能2：啟動經驗加倍 */
+    public boolean activateExpBoost() {
+        if (!skillUnlocked[2] || expBoostActive) return false;
+        expBoostActive = true;
+        return true;
+    }
+
+    /** 技能2：是否加倍中 */
+    public boolean isExpBoostActive() { return expBoostActive; }
+
+    /** 技能2：關卡結束後重置（每關只能用一次）*/
+    public void resetExpBoost() { expBoostActive = false; }
+
+    // -------------------------------------------------------
+    // 扣血（護盾攔截）
+    // -------------------------------------------------------
+    public boolean takeDamage(int wave) {
+        // 護盾啟動時攔截一次爆炸，不扣血並消耗護盾
+        if (shieldActive) {
+            consumeShield();
+            return false; // false = 沒有真正受傷
+        }
+        int baseDmg  = (int)(maxHp * 0.25);
         int waveBonus = wave * 5;
-        // 3. 扣除防禦力，並設定保底傷害為 10
-        int finalDmg = Math.max(10, (baseDmg + waveBonus) - defense);
-        
+        int finalDmg  = Math.max(10, (baseDmg + waveBonus) - defense);
         currentHp -= finalDmg;
         if (currentHp < 0) currentHp = 0;
+        return true; // true = 真的扣了血
     }
 
     public void heal(int amount) {
         currentHp = Math.min(currentHp + amount, maxHp);
     }
 
-    public void resetHp(){
-        currentHp = maxHp;
-    }
+    public void resetHp() { currentHp = maxHp; }
 
     // -------------------------------------------------------
     // Getters / Setters
     // -------------------------------------------------------
-    public int getScore()      { return score; }
-    public void addScore(int n){ score += n; }
-
-    public int getCurrentHp()  { return currentHp; }
-    public int getMaxHp()      { return maxHp; }
-    public int getDefense()    { return defense; }
-    public int getSpeed()      { return speed; }
-    public boolean isDead()    {return currentHp <=0;}
+    public int  getScore()       { return score; }
+    public void addScore(int n)  { score += n; }
+    public int  getCurrentHp()  { return currentHp; }
+    public int  getMaxHp()      { return maxHp; }
+    public int  getDefense()    { return defense; }
+    public int  getSpeed()      { return speed; }
+    public boolean isDead()     { return currentHp <= 0; }
 }
